@@ -4,5 +4,5 @@ class Client(object):
     def __init__(self, address):
         self.address = address
 
-    def getAddress(self):
-        return self.address
+    #def getAddress(self):
+        #return self.address

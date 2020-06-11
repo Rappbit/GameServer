@@ -1,102 +1,73 @@
-#!/usr/bin/python3
 import socket
-import asyncio
-import threading
 import _thread
 import time
 from client import Client
 from game_data import GameData
-from broadcaster import Broadcaster
-
-localIP = '0.0.0.0'
-localPort = 20001
-bufferSize = 1024
-tickRate = 10
-
-# Create datagram socket
-serverSocket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
-
-shouldListen = True
-shouldBroadcast = True
-
-gameData = GameData()
+from lobby import Lobby
 
 
-def main():
-    # Bind to address and ip
-    serverSocket.bind((localIP, localPort))
-    gameData.serverSocket = serverSocket
-    print("UDP Server up and listening")
+class GameServer:
+    # GameServer Attributes
+    localIP = '0.0.0.0'
+    localPort = 20001
+    bufferSize = 1024
+    shouldListen = True
+    lobbies = []
 
-    #listen()
-   # broadcaster = Broadcaster(1, "Broadcast")
-    #broadcaster.gameData = gameData
-   # broadcaster.start()
-    _thread.start_new_thread(listen, ())
-    _thread.start_new_thread(broadcastTick(), ())
-    while 1:
+    # Create datagram socket
+    serverSocket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
+
+    def __init__(self):
         pass
-    # Create Tick Timer
-    # tickLoop = asyncio.get_event_loop()
-    # tickListenTask = tickLoop.create_task(tickListen())
-    # tickBroadcastTask = tickLoop.create_task(tickBroadcast())
 
-    # try:
-    # tickLoop.run_until_complete(tickListenTask)
-    # tickLoop.run_until_complete(tickBroadcastTask)
+    def start(self):
+        print("Starting Game Server")
 
+        # Bind to ip and port
+        self.serverSocket.bind((self.localIP, self.localPort))
+        # Start Listening Thread
+        _thread.start_new_thread(self.listen, ())
+        print("UDP Server up and listening")
 
-# except asyncio.CancelledError:
-# pass
+    def listen(self):
+        # Listen for incoming datagrams
+        while self.shouldListen:
+            bytesAddressPair = self.serverSocket.recvfrom(self.bufferSize)
+            message = bytesAddressPair[0].decode().strip()
+            address = bytesAddressPair[1]
+            # Parse incoming message
+            client = Client(address)
+            self.parseMessage(message, client)
 
-
-def listen():
-    # Listen for incoming datagrams
-    while shouldListen:
-        bytesAddressPair = serverSocket.recvfrom(bufferSize)
-        message = bytesAddressPair[0].decode().strip()
-        address = bytesAddressPair[1]
-        parseMessage(message, address)
-
-        # Sending reply to client
-
-        # UDPServerSocket.sendto(bytesToSend, address)
-
-
-def parseMessage(msg, address):
-    print("parsing message: {}".format(msg))
-    if msg == "connect" and address not in gameData.clients:
-        print ("client {} connected".format(address))
-        gameData.clients.append(Client(address))
-
-
-# async def tickListen():
-#     print("Listening")
-#     while True:
-#         listen()
-#         await asyncio.sleep(0.1)
-#
-#
-# async def tickBroadcast():
-#     print("fasfa")
-#     while True:
-#         broadcast("test")
-#         await asyncio.sleep(0.1)
-
-def broadcastTick():
-    msg = "Alex"
-    while shouldBroadcast:
-        broadcast(msg)
-        time.sleep(1.0 / tickRate)
+    def parseMessage(self, msg, client):
+        print("parsing message: {} from {}".format(msg, client.address))
+        if msg == "create_lobby":
+            lobbyID = len(self.lobbies)
+            print("{} created new lobby: {}".format(client.address, lobbyID))
+            self.lobbies.append(Lobby(lobbyID, GameData(), client, self.serverSocket))
+            self.sendMessage("Lobby created", client)
+            return None
+        if msg.__contains__("join_lobby_"):
+            lobbyID = int(msg[msg.index("lobby_")+6:])
+            if len(self.lobbies) > lobbyID:
+                lobby = self.lobbies[lobbyID]
+                lobby.join(client)
+                self.sendMessage("Lobby joined", client)
+            else:
+                self.sendMessage("Lobby doesn't exist", client)
+            return None
+        if msg.__contains__("lID_"):
+            # lobby specific package and parse lobbyID first
+            tmp = msg[msg.index("lID_")+4:]
+            lobbyID = int(tmp[:tmp.index("_")])
+            if len(self.lobbies) > lobbyID:
+                # redirect package to responsible lobby
+                self.lobbies[lobbyID].receivePackage(tmp[tmp.index("_")+1:], client)
 
 
-def broadcast(msg):
-    print ("broadcasting: {}".format(msg))
-    msg = msg.encode()
-    for client in gameData.clients:
+    def sendMessage(self, msg, client):
+        # Encode msg to byte obj
+        msg = msg.encode()
         address = client.address
-        serverSocket.sendto(msg, address)
-
-
-if __name__ == "__main__":
-    main()
+        # send message to client
+        self.serverSocket.sendto(msg, address)

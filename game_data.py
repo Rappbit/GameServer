@@ -2,9 +2,7 @@ import socket
 
 
 class GameData:
-    value = "test"
-    clients = []
-    serverSocket = None
+    value = "pos_x_24_y_452_z_13"
 
     def __init__(self):
         pass
